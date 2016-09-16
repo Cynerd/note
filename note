@@ -1,0 +1,229 @@
+#!/bin/bash
+# note - script for accessing and managing notes in plain text files
+# Copyright (C) 2016 Karel Kočí
+#
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation; either version 2
+# of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+
+# As first thing move to directory where we store notes
+if ! [ -d ~/.notes ]; then
+	if [ -e ~/.notes ]; then
+		echo "Can't create directory ~/.notes, there is some file with such name." >&2
+		exit -1
+	else
+		mkdir ~/.notes
+		echo "New note storage created in ~/.notes"
+	fi
+fi
+cd ~/.notes
+
+# git stuff #####################################################################
+# Check if there is git repository (at least if there is .git folder or file)
+check_git() {
+	if [ -e .git ]; then
+		return 0
+	else
+		return 1
+	fi
+}
+
+GIT_COMMIT="git commit --no-gpg-sign"
+
+# If there are some changes in directory, then commit them as unmanaged.
+git_commit_unmanaged() {
+	if ! check_git; then return; fi
+	# Just add any changes to index
+	git add .
+	if [ -n "$(git diff-index --cached --name-status HEAD)" ]; then
+		# No changes staged, so we can return
+		return
+	fi
+	$GIT_COMMIT -m "unmanaged: add all changes made without using note" 2>/dev/null
+}
+
+# If there are some changes in given file, then commit
+git_commit_file_edited() {
+	if ! check_git; then return; fi
+	git add "$1"
+	if [ -n "$(git diff-index --cached --name-status HEAD \"$1\")" ]; then
+		# No changes staged, so we can return
+		return
+	fi
+	$GIT_COMMIT -m "$1 updated" 2>/dev/null
+}
+
+git_commit_new() {
+	if ! check_git; then return; fi
+	git add "$1"
+	$GIT_COMMIT -m "$1 created" 2>/dev/null
+}
+
+git_commit_remove() {
+	if ! check_git; then return; fi
+	git rm -f "$1"
+	$GIT_COMMIT -m "$1 removed" 2>/dev/null
+}
+
+git_commit_move() {
+	if ! check_git; then return; fi
+	git mv "$1" "$2"
+	$GIT_COMMIT -m "$1 renamed to $2" 2>/dev/null
+}
+
+# operations on notes ###########################################################
+
+note_edit() {
+	$EDITOR "$1"
+	git_commit_file_edited "$1"
+}
+
+note_move() {
+	# We have to check if we have git repository, otherwise we must move it our on self.
+	if ! check_git; then
+		mv "$1" "$2"
+	else
+		git_commit_move "$1" "$2"
+	fi
+}
+
+note_less() {
+	less "$1"
+}
+
+note_delete() {
+	rm -rf "$1"
+	echo "Removed $1"
+	git_commit_remove "$1"
+}
+
+note_create() {
+	touch "$1"
+	echo "Create $1"
+	git_commit_new "$1"
+}
+
+# arguments parsing and hep #####################################################
+
+print_help() {
+	echo "Usage: note [OPERATION] NOTE <TARGET_NOTE>"
+	echo "Edit and see notes from ~/.notes directory."
+	echo
+	echo "Operations:"
+	echo "  d, delete   Remove given note."
+	echo "  c, create   Specifies that we want to just create note."
+	echo "              Editor won't be opened. If such note exists,"
+	echo "              error is reported."
+	echo "  e, edit     Specifies that we want to edit given note."
+	echo "              If note is missing, error is reported."
+	echo "  m, move     Renames given note to new TARGET_NOTE."
+	echo "  l, less     Shows note in less instead of editing it."
+	echo "  git         Executes git command in ~/.notes directory"
+	echo "              All arguments after this operation is passed"
+	echo "              to git call as its arguments."
+}
+
+is_op() {
+	case "$1" in
+		git|d|delete|c|create|e|edit|m|move|l|less)
+			return 0
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
+while (( $# > 0 )); do
+	case "$1" in
+		-h|--help|-?)
+			print_help
+			exit 0
+			;;
+		*)
+			if [ -z "$OPERATION" ] && is_op "$1"; then
+				if [ "$1" == "git" ]; then
+					shift
+					GIT_ARGS="$@"
+					shift $#
+				else
+					OPERATION="$1"
+					shift
+				fi
+				continue
+			fi
+			if [ -z "$NOTE" ]; then
+				NOTE="$1"
+				shift
+				continue
+			fi
+			if [ -z "$TARGET_NOTE" ]; then
+				TARGET_NOTE="$1"
+				shift
+				continue
+			fi
+			echo "Unknown argument $1" >&2
+			exit 1
+			;;
+	esac
+	shift
+done
+if [ -n "$TARGET_NOTE" ] && [ "$MOVE" != "y" ]; then
+	echo "Unknown argument $TARGET_NOTE" >&2
+	exit 1
+fi
+
+case "$OPERATION" in
+	git)
+		git $GIT_ARGS
+		exit $?
+		;;
+	d|delete)
+		note_delete "$NOTE"
+		;;
+	c|create)
+		if [ -e "$NOTE" ]; then
+			echo "$NOTE already exists." >&2
+			exit 2
+		fi
+		note_create "$NOTE"
+		;;
+	e|edit)
+		if ! [ -e "$NOTE" ]; then
+			echo "$NOTE doesn't exists." >&2
+			exit 3
+		fi
+		note_edit "$NOTE"
+		;;
+	m|move)
+		if ! [ -e "$NOTE" ]; then
+			echo "$NOTE doesn't exists." >&2
+			exit 3
+		fi
+		if [ -e "$TARGET_NOTE" ]; then
+			echo "$TARGET_NOTE already exists." >&2
+			exit 2
+		fi
+		note_move "$NOTE" "$TARGET_NOTE"
+		;;
+	l|less)
+		if ! [ -e "$NOTE" ]; then
+			echo "$NOTE doesn't exists." >&2
+			exit 3
+		fi
+		note_less "$NOTE"
+		;;
+	*)
+		note_edit "$NOTE"
+		;;
+esac
