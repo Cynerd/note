@@ -1,0 +1,47 @@
+# Bash completion file for note
+# vim: ft=sh
+
+_note_complete_notes() {
+	local IFS=$'\n'
+	local prefix="~/.notes/"
+	local items=($(compgen -f $prefix$cur))
+	for item in ${items[@]}; do
+		# Ignore hidden files
+		[[ $item =~ /\.[^/]*$ ]] && continue
+
+		# TODO if there is only single file in directory that match it
+
+		# append / to directories
+		[ -d $item ] && item="$item/"
+
+		COMPREPLY+=("${item#$prefix}")
+	done
+}
+
+_note() {
+	local cur prev ops
+	COMPREPLY=()
+	cur="${COMP_WORDS[COMP_CWORD]}"
+
+	if [[ $COMP_CWORD -gt 1 ]]; then
+		case "${COMP_WORDS[1]}" in
+			delete|create|edit|less)
+				if [[ $COMP_CWORD -ge 2 ]]; then return; fi
+				_note_complete_notes
+				;;
+			move)
+				if [[ $COMP_CWORD -ge 3 ]]; then return; fi
+				_note_complete_notes
+				;;
+			git)
+				# TODO is there way to call git completition?
+				;;
+		esac
+	else
+		local ops="delete create edit move less git"
+		COMPREPLY+=($(compgen -W "${ops}" -- ${cur}))
+		_note_complete_notes
+	fi
+}
+
+complete -o filenames -o nospace -F _note note
