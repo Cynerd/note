@@ -56,7 +56,7 @@ git_commit_unmanaged() {
 git_commit_file_edited() {
 	if ! check_git; then return; fi
 	git add "$1"
-	if [ -n "$(git diff-index --cached --name-status HEAD \"$1\")" ]; then
+	if [ -n "$(git diff-index --cached --name-status HEAD -- "$1")" ]; then
 		# No changes staged, so we can return
 		return
 	fi
@@ -116,21 +116,23 @@ note_create() {
 # arguments parsing and hep #####################################################
 
 print_help() {
-	echo "Usage: note [OPERATION] NOTE <TARGET_NOTE>"
+	echo "Usage: note [OPTIONS] <TARGET_NOTE>"
 	echo "Edit and see notes from ~/.notes directory."
 	echo
-	echo "Operations:"
-	echo "  d, delete   Remove given note."
-	echo "  c, create   Specifies that we want to just create note."
-	echo "              Editor won't be opened. If such note exists,"
-	echo "              error is reported."
-	echo "  e, edit     Specifies that we want to edit given note."
-	echo "              If note is missing, error is reported."
-	echo "  m, move     Renames given note to new TARGET_NOTE."
-	echo "  l, less     Shows note in less instead of editing it."
-	echo "  git         Executes git command in ~/.notes directory"
-	echo "              All arguments after this operation is passed"
-	echo "              to git call as its arguments."
+	echo "Options:"
+	echo "  -d, --delete Remove given note."
+	echo "  -c, --create Specifies that we want to just create note."
+	echo "               Editor won't be opened. If such note exists,"
+	echo "               error is reported."
+	echo "  -e, --edit   Specifies that we want to edit given note."
+	echo "               If note is missing, error is reported."
+	echo "  -m, --move   Renames given note to new TARGET_NOTE."
+	echo "  -l, --less   Shows note in less instead of editing it."
+	echo "  -t, --tree   Shows all notes in tree. No TARGET_NOTE is"
+	echo "               expected for when this option is used."
+	echo "Git usage: note git <GIT_ARGS>"
+	echo "  Executes git command in ~/.notes directory All arguments"
+	echo "  after this operation is passed to git call as its arguments."
 }
 
 is_op() {
@@ -152,13 +154,11 @@ while (( $# > 0 )); do
 			;;
 		*)
 			if [ -z "$OPERATION" ] && is_op "$1"; then
-				if [ "$1" == "git" ]; then
-					shift
+				OPERATION="$1"
+				shift
+				if [ "$OPERATION" == "git" ]; then
 					GIT_ARGS="$@"
 					shift $#
-				else
-					OPERATION="$1"
-					shift
 				fi
 				continue
 			fi
@@ -185,6 +185,7 @@ fi
 
 case "$OPERATION" in
 	git)
+		# TODO handle git init (create initial commit otherwise errors can ocure)
 		git $GIT_ARGS
 		exit $?
 		;;
